@@ -895,3 +895,50 @@ class TestLoadTimeSnapshotSanitization:
         # Block marker appears exactly once, not nested
         assert snapshot.count("[BLOCKED:") == 1
         assert "Clean fact" in snapshot
+
+
+# =========================================================================
+# memory_tool() dispatcher — operations=[] must not fall through to the
+# single-op path. Regression test for the "Unknown action 'None'" bug:
+# `if operations:` treated operations=None and operations=[] identically
+# (both falsy), so an explicit empty batch skipped the batch branch,
+# landed in the single-op branch with action=None, and hit the catch-all
+# else with a misleading error unrelated to the actual problem (empty
+# batch, not an invalid action string). Same symptom class as #55755,
+# distinct root cause (dispatcher truthiness check, not action-string
+# corruption in the tool executor).
+# =========================================================================
+
+
+class TestMemoryToolEmptyBatchDispatcher:
+    def test_empty_operations_list_rejected_with_clear_error(self, store):
+        from tools.memory_tool import memory_tool
+        import json
+
+        res = json.loads(memory_tool(operations=[], store=store))
+        assert res["success"] is False
+        assert "operations list is empty" in res["error"]
+        # Must NOT regress to the misleading dispatcher fallthrough message.
+        assert "Unknown action" not in res["error"]
+
+    def test_none_operations_still_routes_to_single_op_path(self, store):
+        """operations=None (the default / key omitted) must keep working
+        the old way: falls through to the single-op path, and a missing
+        action there still reports the original catch-all error. This
+        pins the boundary so the fix doesn't overcorrect and break the
+        documented single-op call shape.
+        """
+        from tools.memory_tool import memory_tool
+        import json
+
+        res = json.loads(memory_tool(operations=None, store=store))
+        assert res["success"] is False
+        assert "Unknown action" in res["error"]
+
+    def test_non_list_operations_rejected(self, store):
+        from tools.memory_tool import memory_tool
+        import json
+
+        res = json.loads(memory_tool(operations="not-a-list", store=store))  # type: ignore[arg-type]
+        assert res["success"] is False
+        assert "must be a list" in res["error"]

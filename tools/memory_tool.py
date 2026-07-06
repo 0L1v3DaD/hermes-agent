@@ -981,9 +981,22 @@ def memory_tool(
         return tool_error(f"Invalid target '{target}'. Use 'memory' or 'user'.", success=False)
 
     # --- Batch path -------------------------------------------------------
-    if operations:
+    # Distinguish "no operations key" (None -> single-op path) from
+    # "operations explicitly passed as []" (must be rejected with a clear
+    # error here -- a bare truthiness check on `operations` treats both as
+    # falsy and silently falls through to the single-op path, where the
+    # unset `action` hits the catch-all else and reports the misleading
+    # "Unknown action 'None'" error instead of an empty-batch message.
+    if operations is not None:
         if not isinstance(operations, list):
             return tool_error("operations must be a list of {action, content?, old_text?} objects.", success=False)
+        if not operations:
+            return tool_error(
+                "operations list is empty. Pass at least one "
+                "{action, content?, old_text?} object, or omit 'operations' "
+                "entirely for a single-op call.",
+                success=False,
+            )
         gate_result = _apply_batch_write_gate(target, operations)
         if gate_result is not None:
             return gate_result
